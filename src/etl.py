@@ -1,10 +1,9 @@
 import os
-from PIL import Image
+from PIL import Image, ImageOps, ImageEnhance
 import PyPDF2
 from docx import Document
 
-# Bloque de importación segura:
-# Si no tienes Tesseract instalado hoy, el programa no fallará, solo te avisará.
+# Bloque de importación segura
 try:
     import pytesseract
     from pdf2image import convert_from_path
@@ -14,59 +13,92 @@ except ImportError:
     pytesseract = None
     convert_from_path = None
 
+def preprocess_image(image):
+    """
+    Mejora la imagen para ayudar al OCR:
+    1. Convierte a escala de grises.
+    2. Aumenta el contraste.
+    3. Escala la imagen si es pequeña (Zoom x2).
+    """
+    # 1. Escala de grises
+    image = image.convert('L')
+    
+    # 2. Aumentar contraste
+    enhancer = ImageEnhance.Contrast(image)
+    image = enhancer.enhance(2.0) # Doble contraste
+    
+    # 3. Escalado (Si es pequeña, la agrandamos)
+    width, height = image.size
+    if width < 1000:
+        new_size = (width * 2, height * 2)
+        image = image.resize(new_size, Image.Resampling.LANCZOS)
+        
+    return image
+
 def extract_text_from_pdf(file_path):
-    """Extrae texto de un PDF. Si es escaneado, pide ayuda al OCR."""
     text = ""
     try:
+        # Intento nativo
         with open(file_path, 'rb') as f:
             reader = PyPDF2.PdfReader(f)
             for page in reader.pages:
                 txt = page.extract_text()
                 if txt: text += txt + "\n"
         
-        # Validación: Si hay muy poco texto, probablemente sea una imagen pegada en el PDF
-        if len(text) < 50:
-            return "[INFO] Poco texto detectado (PDF Escaneado). Se requeriría OCR (Tesseract) aquí."
+        # Si falla (PDF Escaneado), usar OCR con pre-procesamiento
+        if len(text.strip()) < 50:
+            if TESSERACT_AVAILABLE:
+                print(f"📄 PDF escaneado detectado: {file_path}. Usando OCR...")
+                images = convert_from_path(file_path)
+                ocr_text = ""
+                for img in images:
+                    # ¡Pre-procesamos cada página!
+                    img = preprocess_image(img)
+                    ocr_text += pytesseract.image_to_string(img, lang='spa') + "\n"
+                return ocr_text
+            else:
+                return "[INFO] PDF Escaneado detectado. Instala poppler-utils y pdf2image."
         return text
     except Exception as e:
         return f"Error leyendo PDF: {e}"
 
 def extract_text_from_docx(file_path):
-    """Extrae texto de un archivo Word."""
     try:
         doc = Document(file_path)
-        full_text = []
-        for p in doc.paragraphs:
-            full_text.append(p.text)
-        return '\n'.join(full_text)
+        return '\n'.join([p.text for p in doc.paragraphs])
     except Exception as e:
         return f"Error leyendo Word: {e}"
 
 def extract_text_from_image(file_path):
-    """Intenta leer texto de una imagen."""
     if not TESSERACT_AVAILABLE:
-        return "[INFO] Para leer imágenes necesitas instalar Tesseract-OCR. Mañana en la PC de la universidad funcionará directo."
+        return "[ERROR] Tesseract no instalado."
     
     try:
+        # Cargar imagen
         image = Image.open(file_path)
-        return pytesseract.image_to_string(image, lang='spa')
+        
+        # --- MEJORA: Pre-procesamiento ---
+        print(f"🖼️ Mejorando calidad de imagen: {file_path}")
+        image = preprocess_image(image)
+        # ---------------------------------
+        
+        text = pytesseract.image_to_string(image, lang='spa')
+        
+        # Validación de "Basura"
+        if len(text.strip()) < 5:
+            return "[ADVERTENCIA] No se pudo detectar texto claro en la imagen."
+            
+        return text
     except Exception as e:
         return f"Error de OCR: {e}"
 
 def process_document(file_obj):
-    """
-    Función Principal (El 'Gerente').
-    Recibe un archivo, mira su extensión y decide a quién llamar.
-    """
-    # Manejo de diferencias entre Gradio y rutas locales
     if hasattr(file_obj, 'name'):
         file_path = file_obj.name
     else:
         file_path = file_obj
 
-    # Obtener la extensión del archivo (ej: .pdf, .docx)
     ext = os.path.splitext(file_path)[1].lower()
-    
     print(f"Procesando archivo: {file_path}")
 
     if ext == '.pdf':
