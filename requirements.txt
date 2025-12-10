@@ -1,0 +1,22 @@
+# --- Core Deep Learning & NLP (Para la GPU mañana) ---
+torch>=2.0.0
+transformers>=4.30.0
+accelerate>=0.20.0
+bitsandbytes>=0.40.0
+peft>=0.4.0
+scikit-learn
+
+# --- Procesamiento de Documentos (Lo usamos hoy) ---
+pytesseract
+pdf2image
+python-docx
+PyPDF2
+pillow
+
+# --- Interfaz Web (Lo usamos hoy) ---
+gradio>=3.35.0
+
+# --- Datos y Utilidades ---
+pandas
+numpy
+tqdm
